@@ -86,8 +86,7 @@ const defaultCardIds = [
     "66bcc4fe50f7137997304dcf"
   ];
   const cardId = route.params?.cardId || defaultCardIds[Math.floor(Math.random() * defaultCardIds.length)];
-  const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2Nzg1YmYxYTVhZjNhYWQ1YTNmOTA0MzMiLCJpYXQiOjE3MzgzODQyNzksImV4cCI6MTczODY0MzQ3OX0.TGGZSbZExUuNwgHvTYd6P5fxEm9Y2X5XpORB2EMviCs'; // Replace with actual token from auth context
-
+  const token = 'TestApiKey';
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
