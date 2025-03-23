@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 
-// Define types for our data models
 export interface Card {
   id: string;
   name: string;
@@ -14,7 +13,7 @@ export interface Card {
   limit?: number;
   expiryDate: string;
   categories: string[];
-  applePayEnabled: boolean; // Added to support Apple Pay
+  applePayEnabled: boolean;
 }
 
 export interface Transaction {

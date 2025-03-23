@@ -23,10 +23,6 @@ export interface DynamicColors {
   buttonBackground: string;
 }
 
-/**
- * A hook that returns colors based on the current color scheme (light/dark)
- * following Apple's Human Interface Guidelines
- */
 export const useDynamicColors = (): DynamicColors => {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
