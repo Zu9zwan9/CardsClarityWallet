@@ -10,10 +10,11 @@ export interface Card {
   cashbackRate: number;
   type: 'credit' | 'debit';
   color: string;
-  balance?: number; // Optional for debit cards
-  limit?: number; // Optional for credit cards
+  balance?: number;
+  limit?: number;
   expiryDate: string;
-  categories: string[]; // Categories where this card offers cashback
+  categories: string[];
+  applePayEnabled: boolean; // Added to support Apple Pay
 }
 
 export interface Transaction {
@@ -51,7 +52,7 @@ interface WalletContextValue extends WalletState {
   selectCard: (id: string) => void;
   filterCards: (type?: 'credit' | 'debit' | 'all') => void;
   addTransaction: (transaction: Omit<Transaction, 'id' | 'cashbackAmount'>) => void;
-  processPayment: (amount: number, merchant: string, category: string, cardId?: string) => Promise<boolean>;
+  processPayment: (cardId: string, amount: number, merchant: string, category: string) => Promise<{ success: boolean; message: string }>;
   getBestCardForCategory: (category: string) => Card | null;
 }
 
@@ -71,6 +72,7 @@ const sampleCards: Card[] = [
     limit: 10000,
     expiryDate: '12/25',
     categories: ['groceries', 'streaming', 'transit'],
+    applePayEnabled: true,
   },
   {
     id: '2',
@@ -83,6 +85,7 @@ const sampleCards: Card[] = [
     limit: 5000,
     expiryDate: '09/24',
     categories: ['dining', 'drugstores', 'travel'],
+    applePayEnabled: true,
   },
   {
     id: '3',
@@ -95,6 +98,7 @@ const sampleCards: Card[] = [
     limit: 7500,
     expiryDate: '03/26',
     categories: ['general'],
+    applePayEnabled: false,
   },
   {
     id: '4',
@@ -107,6 +111,7 @@ const sampleCards: Card[] = [
     balance: 2500,
     expiryDate: '05/27',
     categories: [],
+    applePayEnabled: false,
   },
 ];
 
@@ -124,7 +129,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Generate suggestions based on transaction history
   useEffect(() => {
     if (state.transactions.length > 0) {
-      // Group transactions by category
       const categorySpending: Record<string, number> = {};
       state.transactions.forEach(transaction => {
         if (!categorySpending[transaction.category]) {
@@ -133,20 +137,15 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         categorySpending[transaction.category] += transaction.amount;
       });
 
-      // Find top spending categories
       const topCategories = Object.entries(categorySpending)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 3)
-        .map(([category]) => category);
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 3)
+          .map(([category]) => category);
 
-      // Generate suggestions for each top category
       const newSuggestions: Suggestion[] = [];
 
       topCategories.forEach(category => {
-        // Find the best card for this category
         const bestCard = getBestCardForCategory(category);
-
-        // Find the card used most often for this category
         const categoryTransactions = state.transactions.filter(t => t.category === category);
         const cardUsage: Record<string, number> = {};
 
@@ -158,10 +157,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
 
         const mostUsedCardId = Object.entries(cardUsage)
-          .sort(([, a], [, b]) => b - a)
-          .map(([cardId]) => cardId)[0];
+            .sort(([, a], [, b]) => b - a)
+            .map(([cardId]) => cardId)[0];
 
-        // If the most used card is not the best card, create a suggestion
         if (bestCard && mostUsedCardId && bestCard.id !== mostUsedCardId) {
           const mostUsedCard = state.cards.find(c => c.id === mostUsedCardId);
           if (mostUsedCard) {
@@ -190,7 +188,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [state.transactions]);
 
-  // Add a new card
   const addCard = (card: Omit<Card, 'id'>) => {
     const newCard: Card = {
       ...card,
@@ -204,7 +201,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
-  // Remove a card
   const removeCard = (id: string) => {
     setState(prevState => ({
       ...prevState,
@@ -214,7 +210,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
-  // Select a card
   const selectCard = (id: string) => {
     const card = state.cards.find(card => card.id === id) || null;
     setState(prevState => ({
@@ -223,23 +218,24 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
-  // Filter cards by type
-  const filterCards = useCallback((type: 'credit' | 'debit' | 'all' = 'all') => {
-    const filtered = type === 'all'
-        ? state.cards
-        : state.cards.filter(card => card.type === type);
+  const filterCards = useCallback(
+      (type: 'credit' | 'debit' | 'all' = 'all') => {
+        const filtered = type === 'all'
+            ? state.cards
+            : state.cards.filter(card => card.type === type);
 
-    setState(prevState => ({
-      ...prevState,
-      filteredCards: filtered,
-    }));
-  }, [state.cards]);
-  // Add a transaction
+        setState(prevState => ({
+          ...prevState,
+          filteredCards: filtered,
+        }));
+      },
+      [state.cards]
+  );
+
   const addTransaction = (transaction: Omit<Transaction, 'id' | 'cashbackAmount'>) => {
     const card = state.cards.find(card => card.id === transaction.cardId);
     if (!card) return;
 
-    // Calculate cashback amount
     const cashbackAmount = calculateCashback(transaction.amount, card.cashbackRate);
 
     const newTransaction: Transaction = {
@@ -254,63 +250,52 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
-  // Calculate cashback amount
   const calculateCashback = (amount: number, cashbackRate: number): number => {
     return amount * (cashbackRate / 100);
   };
 
-  // Get the best card for a specific category
   const getBestCardForCategory = (category: string): Card | null => {
     const eligibleCards = state.cards.filter(card =>
-      card.categories.includes(category) || card.categories.includes('general')
+        card.categories.includes(category) || card.categories.includes('general')
     );
 
     if (eligibleCards.length === 0) return null;
 
     return eligibleCards.reduce((best, current) =>
-      current.cashbackRate > best.cashbackRate ? current : best
+        current.cashbackRate > best.cashbackRate ? current : best
     );
   };
 
-  // Process a payment
   const processPayment = async (
-    amount: number,
-    merchant: string,
-    category: string,
-    cardId?: string
-  ): Promise<boolean> => {
+      cardId: string,
+      amount: number,
+      merchant: string,
+      category: string
+  ): Promise<{ success: boolean; message: string }> => {
     setState(prevState => ({ ...prevState, isLoading: true }));
 
     try {
-      // Simulate processing delay
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Determine which card to use
-      const card = cardId
-        ? state.cards.find(c => c.id === cardId)
-        : getBestCardForCategory(category);
-
+      const card = state.cards.find(c => c.id === cardId);
       if (!card) {
-        throw new Error('No suitable card found');
+        throw new Error('Card not found');
       }
 
-      // Check if card has sufficient funds/credit
       if (card.type === 'debit' && card.balance !== undefined && card.balance < amount) {
         throw new Error('Insufficient funds');
       }
 
       if (card.type === 'credit' && card.limit !== undefined) {
-        // Get total spent on this card
         const totalSpent = state.transactions
-          .filter(t => t.cardId === card.id)
-          .reduce((sum, t) => sum + t.amount, 0);
+            .filter(t => t.cardId === card.id)
+            .reduce((sum, t) => sum + t.amount, 0);
 
         if (totalSpent + amount > card.limit) {
           throw new Error('Credit limit exceeded');
         }
       }
 
-      // Add the transaction
       const transaction: Omit<Transaction, 'id' | 'cashbackAmount'> = {
         cardId: card.id,
         amount,
@@ -321,16 +306,14 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       addTransaction(transaction);
 
-      // Trigger success haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      return true;
+      return { success: true, message: `Payment of $${amount} to ${merchant} successful!` };
     } catch (error) {
-      // Trigger error haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-
-      console.error('Payment processing error:', error);
-      return false;
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'An unknown error occurred',
+      };
     } finally {
       setState(prevState => ({ ...prevState, isLoading: false }));
     }
@@ -347,14 +330,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     getBestCardForCategory,
   };
 
-  return (
-    <WalletContext.Provider value={value}>
-      {children}
-    </WalletContext.Provider>
-  );
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 };
 
-// Custom hook to use the wallet context
 export const useWallet = (): WalletContextValue => {
   const context = useContext(WalletContext);
   if (context === undefined) {
